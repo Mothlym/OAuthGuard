@@ -2,7 +2,7 @@
     "manifest_version":2,
 
 
-    "name":"OAuthGuard",
+    "name":"OAuthGuard mini",
     "version":"1.0.2",
     "description": "An OAuth 2.0 and OpenID Connect Vulnerability Scanner",
 

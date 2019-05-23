@@ -100,7 +100,7 @@ chrome.webRequest.onBeforeRequest.addListener(
                         return { cancel: blocking };
                     },
                     { urls: ["<all_urls>"] },
-                    ["blocking", "requestHeaders"]);
+                    ["blocking", "requestHeaders", "extraHeaders"]);
             }
         } else {
             // // SSL protection
@@ -194,7 +194,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         // }
     },
     { urls: ["<all_urls>"] },
-    ["blocking", "requestHeaders"]);
+    ["blocking", "requestHeaders", "extraHeaders"]);
 /**
  * detect OAuth 2.0 response
  *
@@ -202,7 +202,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
  * @param {string} httpMessage (an http message)
  * @returns {'google.com': {'code':'4/.{43}'}}
  */
-function isOAuth2Token(domainRegs, httpMessage) {
+function isGoogleOAuth2Token(domainRegs, httpMessage) {
     const IdPs = Object.keys(domainRegs);
     var matches = {};
     for (let i = 0; i < IdPs.length; i++) {
@@ -228,6 +228,45 @@ function isOAuth2Token(domainRegs, httpMessage) {
     } else {
         return null;
     }
+}
+function isFacebookOAuth2Token(details, data = null) {
+    
+    var url = details.url;
+    var request = new URL(url);
+    var params = new URLSearchParams(request.search);
+    var matches = {};
+    var tokens = {};
+    var IdP = "facebook.com";
+    var accessTokenReg = new RegExp('(EAA.{150,210})');
+
+    if(!data){
+
+        tokens["access_token"]=params.get("access_token");
+        tokens["code"]=params.get("code");
+        tokens["id_token"]=params.get("id_token");//||params.get("key");
+
+    } else {
+        var result = accessTokenReg.exec(data);
+        /*
+        console.log("raw data facebook proccessing")
+        console.log(data);
+        console.log(result);
+*/
+        tokens["access_token"] = null;
+        tokens["code"]=null;
+        tokens["id_token"]=null;
+
+        if(result)
+        tokens["access_token"] = result[1] || result[2] || result[3] || result[4] || result[5] || result[6];
+        
+    }
+    if (tokens["id_token"] || tokens["code"] || tokens["acces_token"]) {
+        matches[IdP] = tokens;
+        return matches;
+    } else {
+        return null;
+    }
+        
 }
 
 
@@ -283,11 +322,17 @@ function detectOAuth2Response(details) {
         // get method.
         // read customized regular expression.
         var isGoogle;
+        var isOAuth = isFacebookOAuth2Token(details);
+
         if (customizedRegsObjects) {
-            isGoogle = isOAuth2Token(customizedRegsObjects, details.url) || isOAuth2Token(googleOAuth2RegsObject, details.url);
+            isGoogle = isGoogleOAuth2Token(customizedRegsObjects, details.url) || isGoogleOAuth2Token(googleOAuth2RegsObject, details.url);
         } else {
-            isGoogle = isOAuth2Token(googleOAuth2RegsObject, details.url);
+            isGoogle = isGoogleOAuth2Token(googleOAuth2RegsObject, details.url);
         }
+
+        if(!isGoogle && isOAuth)
+        isGoogle=isOAuth;
+
         // console.log(isGoogle);
         if (isGoogle) {
             var IdP = Object.keys(isGoogle)[0];
@@ -316,7 +361,7 @@ function detectOAuth2Response(details) {
                     referer = header["value"];
                 }
             }
-            var isToken = isOAuth2Token(googleOAuth2RegsObject, cookie);
+            var isToken = isGoogleOAuth2Token(googleOAuth2RegsObject, cookie);
             if (isToken) {
                 OAuth2Response.cookie = cookie;
             }
@@ -330,7 +375,7 @@ function detectOAuth2Response(details) {
     } else if (method === 'POST') {
         // post method
         var requestBody = details.requestBody;
-        var data = '';
+        var data = null;
         // get the requestbody from details.
         if (requestBody) {
             var formData = requestBody.formData;
@@ -343,16 +388,21 @@ function detectOAuth2Response(details) {
                     stringForm += keyValuePair;
                 }
                 // console.log('string form ' + stringForm)
-            } else if (rawData.length > 0) {
+            } else if (rawData && rawData.length > 0) {
                 rawData = String.fromCharCode.apply(null, new Uint8Array(requestBody.raw[0].bytes));
                 // console.log('string rawdata' + rawData);
             }
-            data = stringForm || rawData;
+            data = stringForm || rawData || null;
         }
         // check OAuth2 response on data.
-        if (data.length > 0) {
+        if (data && data.length > 0) {
             // console.log(data);
-            var isGoogle = isOAuth2Token(googleOAuth2RegsObject, data);
+            var isOAuth = isFacebookOAuth2Token(details, data);
+            var isGoogle = isGoogleOAuth2Token(googleOAuth2RegsObject, data);
+
+            if(!isGoogle && isOAuth)
+            isGoogle=isOAuth;
+
             if (isGoogle) {
                 var IdP = Object.keys(isGoogle)[0];
                 var tokens = isGoogle[IdP];
@@ -373,11 +423,16 @@ function detectOAuth2Response(details) {
     } else {
         // other methods
         var isGoogle;
+        var isOAuth = isFacebookOAuth2Token(details);
         if (customizedRegsObjects) {
-            isGoogle = isOAuth2Token(customizedRegsObjects, details.url) || isOAuth2Token(googleOAuth2RegsObject, details.url);
+            isGoogle = isGoogleOAuth2Token(customizedRegsObjects, details.url) || isGoogleOAuth2Token(googleOAuth2RegsObject, details.url);
         } else {
-            isGoogle = isOAuth2Token(googleOAuth2RegsObject, details.url);
+            isGoogle = isGoogleOAuth2Token(googleOAuth2RegsObject, details.url);
         }
+
+        if(!isGoogle && isOAuth)
+            isGoogle=isOAuth;
+
         // console.log(isGoogle);
         if (isGoogle) {
             var IdP = Object.keys(isGoogle)[0];
@@ -406,7 +461,7 @@ function detectOAuth2Response(details) {
                     referer = header["value"];
                 }
             }
-            var isToken = isOAuth2Token(googleOAuth2RegsObject, cookie);
+            var isToken = isGoogleOAuth2Token(googleOAuth2RegsObject, cookie);
             if (isToken) {
                 OAuth2Response.cookie = cookie;
             }
@@ -533,7 +588,7 @@ function detectRefererTokenLeakage(details) {
         }
     }
     if(referer){
-        var refererTokens = isOAuth2Token(googleOAuth2RegsObject, referer);
+        var refererTokens = isGoogleOAuth2Token(googleOAuth2RegsObject, referer);
         if(refererTokens){
             var refererURL = new URL(referer);
             var requestURL = new URL(details.url);
@@ -720,9 +775,9 @@ function detectGETSSL(details) {
         // read customized regular expression.
         var isGoogle;
         if (customizedRegsObjects) {
-            isGoogle = isOAuth2Token(customizedRegsObjects, details.url) || isOAuth2Token(googleOAuth2RegsObject, details.url);
+            isGoogle = isGoogleOAuth2Token(customizedRegsObjects, details.url) || isGoogleOAuth2Token(googleOAuth2RegsObject, details.url);
         } else {
-            isGoogle = isOAuth2Token(googleOAuth2RegsObject, details.url);
+            isGoogle = isGoogleOAuth2Token(googleOAuth2RegsObject, details.url);
         }
         // console.log(isGoogle);
         if (isGoogle) {
@@ -769,18 +824,34 @@ function detectOAuth2(details) {
     }
     var url = details.url;
     var request = new URL(url);
+    var params = new URLSearchParams(request.search);
+    var RPUrl;
+
+    OAuth2Request.IdP = request.origin;
+    OAuth2Request.requestURL = request.href;
+    OAuth2Request.IdPProtocol = request.protocol;
+    OAuth2Request.scope = params.get("scope");
+    OAuth2Request.state = params.get("state");
+    OAuth2Request.clientID = params.get("client_id");
+    OAuth2Request.method = details.method;
+
+    var headers = details.requestHeaders;
+    var referer = "";
+    for (var i = 0; i < headers.length; i++) {
+        var header = headers[i];
+        if (header.name.toLowerCase() === "referer") {
+            referer = header["value"];
+        }
+    }
+    OAuth2Request.referer = referer;
 
     // detect whether the request is an OAuth 2.0 request
     if ((request.pathname.search(/oauth/i) >= 0) && (request.search.search(/redirect_uri/i) >= 0)) {
         // it's an OAuth 2.0 Request
-        OAuth2Request.IdP = request.origin;
-        OAuth2Request.requestURL = request.href;
-        OAuth2Request.IdPProtocol = request.protocol;
-        var params = new URLSearchParams(request.search);
 
         // deal with the RP and RP domain in the request object
-        var redirect_uri = params.get("redirect_uri");
-        var RPUrl;
+        var redirect_uri = params.get("redirect_uri");      
+        //console.log(redirect_uri);
 
         if (redirect_uri === "postmessage") {
             OAuth2Request.origin = params.get("origin");
@@ -788,6 +859,7 @@ function detectOAuth2(details) {
 
         } else if (isURL(redirect_uri)) {
             RPUrl = new URL(redirect_uri);
+
         } else if (redirect_uri.indexOf("storagerelay") >= 0) {
             // deal with RP using the Google quick start example.
             var concatRelay = redirect_uri.replace("storagerelay://", "");// remove storagerelay from redirect_uri
@@ -803,62 +875,27 @@ function detectOAuth2(details) {
 
         // console.log(RPUrl);
 
+        // update the OAuth 2.0 Object with the detected request values
+        OAuth2Request.redirectURI = redirect_uri;
+        OAuth2Request.responseType = params.get("response_type");
         OAuth2Request.RP = RPUrl.host;
         OAuth2Request.RPProtocol = RPUrl.protocol;
         OAuth2Request.RPDomain = extractDomain(RPUrl.host);
-        var headers = details.requestHeaders;
-        var referer = "";
-        var cookie = "";
-        for (var i = 0; i < headers.length; i++) {
-            var header = headers[i];
-            if (header.name.toLowerCase() === "cookie") {
-                cookie = header["value"];
-            } else if (header.name.toLowerCase() === "referer") {
-                referer = header["value"];
-            }
-        }
-        OAuth2Request.referer = referer;
-        // update the OAuth 2.0 Object with the detected request values
-        OAuth2Request.clientID = params.get("client_id");
-        OAuth2Request.redirectURI = redirect_uri;
-        OAuth2Request.scope = params.get("scope");
-        OAuth2Request.state = params.get("state");
-        OAuth2Request.responseType = params.get("response_type");
+
         console.log(OAuth2Request);
+        
         return OAuth2Request;
+
     } else if ((request.pathname.search(/oauth/i) >= 0) && (request.search.search(/origin/i) >= 0) && (request.search.search(/client_id/i) >= 0)) {
         // console.log("This is not an OAuth 2.0 Request!");
-        OAuth2Request.IdP = request.origin;
-        OAuth2Request.requestURL = request.href;
-        OAuth2Request.IdPProtocol = request.protocol;
-
-        var headers = details.requestHeaders;
-        var referer = "";
-        var cookie = "";
-        for (var i = 0; i < headers.length; i++) {
-            var header = headers[i];
-            if (header.name.toLowerCase() === "cookie") {
-                cookie = header["value"];
-            } else if (header.name.toLowerCase() === "referer") {
-                referer = header["value"];
-            }
-        }
-        OAuth2Request.referer = referer;
-
-        
-        var params = new URLSearchParams(request.search);
         OAuth2Request.origin = params.get("origin");
-        OAuth2Request.clientID = params.get("client_id");
-        OAuth2Request.scope = params.get("scope");
         OAuth2Request.redirectURI = "iframerpc";
-        OAuth2Request.state = params.get("state");
         OAuth2Request.responseType = params.get("response_type") || params.get("action");
 
-        var RPUrl = new URL(params.get("origin"));
+        RPUrl = new URL(params.get("origin"));
         OAuth2Request.RP = RPUrl.host;
         OAuth2Request.RPProtocol = RPUrl.protocol;
         OAuth2Request.RPDomain = extractDomain(RPUrl.host);
-
 
         console.log(OAuth2Request);
         return OAuth2Request;
@@ -965,7 +1002,7 @@ function extractDomain(host) {
  * check whether a string is URL.
  */
 
-function isURL(str) {
+/*function isURL(str) {
     var pattern = new RegExp('^(https?:\\/\\/)?' + // protocol
         '((([a-z\\d]([a-z\\d-]*[a-z\\d])*)\\.?)+[a-z]{2,}|' + // domain name
         '((\\d{1,3}\\.){3}\\d{1,3}))' + // OR ip (v4) address
@@ -973,7 +1010,15 @@ function isURL(str) {
         '(\\?[;&a-z\\d%_.~+=-]*)?' + // query string
         '(\\#[-a-z\\d_]*)?$', 'i'); // fragment locator
     return pattern.test(str);
-}
+}*/
+const isURL = (str) => {
+    try {
+      new URL(str);
+      return true;
+    } catch (expression) {
+      return false;  
+    }
+  }
 
 
 

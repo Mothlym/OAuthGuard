@@ -53,37 +53,55 @@ function detectOAuth2Threats(OAuthRequest, OAuthResponse) {
 
     // detect csrf and privacy leakage.
     if (OAuthRequest){
-        // referer header is present in the response
-        if (responseReferer) {
-            var responseRefererURL = new URL(responseReferer);
-            var responseRefererDomain = extractDomain(responseRefererURL.host);
-            var RPWhiteList = ["behance.net", "domraider.io", "miamiherald.com", "nj.com", "philips.co.uk", 'stackexchange.com',"stackoverflow.com",'tribdss.com', 'stackexchange.com', 'adobelogin.com', "gigya.com"];
-            // white lists RPs that are changing domains.
-            if (RPWhiteList.indexOf(responseRefererDomain) < 0) {
-                // console.log(responseRefererDomain);
-                // privacy beaches or CSRF attacks
-                if (responseRefererDomain !== OAuthResponse.RPDomain || responseRefererDomain !== OAuthResponse.IdP) {
-                    // detect CSRF attacks
-                    var redirect_uri = OAuthRequest.redirectURI;
-                    if (redirect_uri === 'postmessage') {
-                        // detect for RPs using the Google client library
-                        var origin = OAuthRequest.origin;
-                        if (origin.indexOf(responseRefererDomain) >= 0 || OAuthResponse.IdP.indexOf(responseRefererDomain) >= 0) {
-                            // console.log("No CSRF attack detected!");
-                        }else{
-                            threats.CSRFAttack = true;
-                        }
-                    } else {
-                        // detect for RPs not using the normal OAuth 2.0 Flow
-                        if (redirect_uri.indexOf(responseRefererDomain) >= 0 || OAuthResponse.IdP.indexOf(responseRefererDomain) >= 0) {
+        if (OAuthResponse.RPProtocol === 'http:') {
+            // do nothing here
+        }
+        else{
+            if (responseReferer) {
+                var responseRefererURL = new URL(responseReferer);
+                var responseRefererDomain = extractDomain(responseRefererURL.host);
+                var RPWhiteList = ["behance.net", "domraider.io", "miamiherald.com", "nj.com", "philips.co.uk", 'stackexchange.com',"stackoverflow.com",'tribdss.com', 'stackexchange.com', 'adobelogin.com', "gigya.com"];
+                // white lists RPs that are changing domains.
+                if (RPWhiteList.indexOf(responseRefererDomain) < 0) {
+                    // console.log(responseRefererDomain);
+                    // privacy beaches or CSRF attacks
+                    if (responseRefererDomain !== OAuthResponse.RPDomain || responseRefererDomain !== OAuthResponse.IdP) {
+                        // detect CSRF attacks
+                        var redirect_uri = OAuthRequest.redirectURI;
+                        if (redirect_uri === 'postmessage' || redirect_uri ==="iframerpc") {
+                            // detect for RPs using the Google client library
+                            var origin = OAuthRequest.origin;
+                            if (origin.indexOf(responseRefererDomain) >= 0 || OAuthResponse.IdP.indexOf(responseRefererDomain) >= 0) {
                                 // console.log("No CSRF attack detected!");
-                        }else{
-                            threats.CSRFAttack = true;
+                            }else{
+                                threats.CSRFAttack = true;
+                            }
+                        } else {
+                            // detect for RPs not using the normal OAuth 2.0 Flow
+                            if (redirect_uri.indexOf(responseRefererDomain) >= 0 || OAuthResponse.IdP.indexOf(responseRefererDomain) >= 0) {
+                                    // console.log("No CSRF attack detected!");
+                            }else{
+                                threats.CSRFAttack = true;
+                            }
                         }
                     }
                 }
+            }else{
+                var responseDomain = OAuthResponse.RPDomain;
+                var httpsRPUpgradeWhitelist = localStorage.getItem("httpsRPUpgradeWhitelist");
+                if (httpsRPUpgradeWhitelist) {
+                    httpsRPUpgradeWhitelist = JSON.parse(httpsRPUpgradeWhitelist);
+                    if (httpsRPUpgradeWhitelist.indexOf(responseDomain) < 0) {
+                        threats.CSRFAttack = true;
+                    }
+                }else{
+                    threats.CSRFAttack = true;
+                }
+                
             }
         }
+        // referer header is present in the response
+
     }else{
         // no OAuth 2.0 request is generated for the response domain, then it's a third party token leakage.
         // white RPs using sending tokens to another domain

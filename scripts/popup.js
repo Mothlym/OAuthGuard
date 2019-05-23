@@ -17,6 +17,12 @@ function openVulDiscrpitonPanel(){
     });
 }
 
+function openGuide(){
+    chrome.tabs.create({url: chrome.extension.getURL("contents/guide.html"), active:true}, function(tab){
+        console.log("New tabs was crated!!!!");
+    });
+}
+
 function extractDomain(host) {
     var s;  // the final result
     // Begin Chris Zarate's code
@@ -193,6 +199,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     document.getElementById("open-tools").onclick = openToolsPanel;
     document.getElementById("vulnerabilities").onclick = openVulDiscrpitonPanel;
+    document.getElementById("guide").onclick = openGuide;
     var exp = document.getElementById("export-data");
     if (exp) {
         document.getElementById("export-data").onclick = exportData;
